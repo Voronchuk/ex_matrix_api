@@ -8,6 +8,8 @@ defmodule ExMatrixApi.MixProject do
       elixir: "~> 1.10",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
+      description: "Elixir API to communicate with Matrix Synapse",
+      package: package(),
       deps: deps(),
       dialyzer: [plt_add_apps: [:mix]]
     ]
@@ -24,11 +26,22 @@ defmodule ExMatrixApi.MixProject do
     ]
   end
 
+  defp package do
+    [
+      files: ["lib", "mix.exs", "README.md", "LICENSE"],
+      maintainers: ["Vyacheslav Voronchuk"],
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/Voronchuk/ex_matrix_api"}
+    ]
+  end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      # Utilities
+      {:jason, "~> 1.0"},
+      {:httpoison, "~> 1.6"},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 end

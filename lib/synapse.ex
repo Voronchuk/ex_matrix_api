@@ -365,7 +365,7 @@ defmodule ExMatrixApi.Synapse do
   """
   @spec config!(atom()) :: any()
   def config!(key) do
-    Application.get_env!(:ex_matrix_api, key)
+    Application.fetch_env!(:ex_matrix_api, key)
   end
 
   defp api_url!(suffix), do: config!(:api_url) <> suffix
