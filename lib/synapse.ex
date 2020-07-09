@@ -3,11 +3,11 @@ defmodule ExMatrixApi.Synapse do
   API level to make requests to Matrix Synapse.
   """
 
-  alias ExMatrixApi.Util.Request
-  alias ExMatrixApi.Synapse.Rooms.Timeline
-  alias ExMatrixApi.Synapse.Rooms.Event
-  alias ExMatrixApi.Synapse.Rooms.InviteState
+  alias ExMatrixApi.Synapse.Rooms.{Timeline, Event, InviteState, Member}
   alias ExMatrixApi.Synapse.RegisteredUser
+  alias ExMatrixApi.Util
+  alias ExMatrixApi.Util.{Request, UUID}
+  alias UtilsHttp.Behaviour.HttpClient.HttpError
 
   @doc """
   Get authorization token by login / password.
@@ -50,7 +50,7 @@ defmodule ExMatrixApi.Synapse do
          mac = :crypto.hmac(:sha, key, token) |> Base.encode16(case: :lower),
          payload = Map.merge(payload, %{nonce: nonce, mac: mac}),
          {:ok, response} <- Request.post(register_url, payload) do
-      {:ok, ExMatrixApi.Util.to_struct(RegisteredUser, response)}
+      {:ok, Util.to_struct(RegisteredUser, response)}
     end
   end
 
@@ -131,8 +131,13 @@ defmodule ExMatrixApi.Synapse do
     media_api_url!("/thumbnail/#{config!(:host)}/#{media_id}?#{query}")
   end
 
-  def thumbnail(_, _, _) do
-    GreetWeb.Endpoint.static_path("/images/no-image.png")
+  @doc """
+  Convert mxc URI into http URL for download
+  """
+  @spec download(String.t()) :: String.t()
+  def download("mxc://" <> path) do
+    media_id = String.split(path, "/") |> List.last()
+    media_api_url!("/download/#{config!(:host)}/#{media_id}")
   end
 
   @type timelines :: %{String.t() => Timeline.t()}
@@ -169,8 +174,8 @@ defmodule ExMatrixApi.Synapse do
           relevant_raw_events =
             Enum.filter(raw_events, &Event.is_supported_type?(Map.get(&1, "type")))
 
-          events = Enum.map(relevant_raw_events, &ExMatrixApi.Util.to_struct(Event, &1))
-          state_events = Enum.map(relevant_state_events, &ExMatrixApi.Util.to_struct(Event, &1))
+          events = Enum.map(relevant_raw_events, &Util.to_struct(Event, &1))
+          state_events = Enum.map(relevant_state_events, &Util.to_struct(Event, &1))
 
           timeline = %Timeline{
             uid: key,
@@ -189,7 +194,7 @@ defmodule ExMatrixApi.Synapse do
           relevant_raw_events =
             Enum.filter(raw_events, &Event.is_supported_type?(Map.get(&1, "type")))
 
-          events = Enum.map(relevant_raw_events, &ExMatrixApi.Util.to_struct(Event, &1))
+          events = Enum.map(relevant_raw_events, &Util.to_struct(Event, &1))
 
           invite_state = %InviteState{
             uid: key,
@@ -307,7 +312,7 @@ defmodule ExMatrixApi.Synapse do
     with {:ok, %{"chunk" => events, "start" => sb, "end" => eb}} <-
            Request.get(messages_url, headers) do
       raw_events = Enum.filter(events, &Event.is_supported_type?(Map.get(&1, "type")))
-      events = Enum.map(raw_events, &ExMatrixApi.Util.to_struct(Event, &1))
+      events = Enum.map(raw_events, &Util.to_struct(Event, &1))
       {:ok, {events, sb, eb}}
     end
   end
@@ -324,7 +329,7 @@ defmodule ExMatrixApi.Synapse do
       relevant_raw_events =
         Enum.filter(raw_events, &Event.is_supported_type?(Map.get(&1, "type")))
 
-      events = Enum.map(relevant_raw_events, &ExMatrixApi.Util.to_struct(Event, &1))
+      events = Enum.map(relevant_raw_events, &Util.to_struct(Event, &1))
       {:ok, events}
     end
   end
@@ -332,18 +337,78 @@ defmodule ExMatrixApi.Synapse do
   @doc """
   Send new text message in a specific room.
   """
-  @spec send_text_message(String.t(), String.t(), String.t()) ::
+  @spec send_text_message(String.t(), String.t(), String.t(), String.t() | nil) ::
           {:ok, Event.t()} | {:error, any()}
-  def send_text_message(token, room, text) do
-    headers = auth_headers(token)
-    uuid = Ecto.UUID.autogenerate()
-    message_url = api_url!("/rooms/#{room}/send/m.room.message/#{uuid}")
-    payload = %{"msgtype" => "m.text", "body" => text}
+  def send_text_message(token, room, text, formatted_body \\ nil) do
+    payload = %{
+      "msgtype" => "m.text",
+      "body" => text
+    }
 
-    with {:ok, %{"event_id" => _event_id} = response} <-
-           Request.put(message_url, payload, headers) do
-      {:ok, ExMatrixApi.Util.to_struct(Event, response)}
+    payload =
+      unless is_nil(formatted_body) do
+        payload
+        |> Map.put("formatted_body", formatted_body)
+      else
+        payload
+      end
+
+    send_message(token, room, payload)
+  end
+
+  @doc """
+  Send new file message in a specific room.
+  """
+  @spec send_file_message(String.t(), String.t(), String.t(), %{
+          content_type: String.t(),
+          description: String.t(),
+          filename: nil | String.t()
+        }) :: {:ok, Event.t()} | {:error, HttpError.t()}
+  def send_file_message(token, room, file_content, %{
+        filename: filename,
+        content_type: content_type,
+        description: description
+      }) do
+    with {:ok, media_url} <- upload_media(token, content_type, file_content, filename),
+         payload <- %{
+           "msgtype" => "m.file",
+           "body" =>
+             if(bit_size(description) > 0) do
+               description
+             else
+               filename
+             end,
+           "filename" => filename,
+           "url" => media_url,
+           "info" => %{
+             "mimetype" => content_type,
+             "size" => byte_size(file_content)
+           }
+         } do
+      send_message(token, room, payload)
     end
+  end
+
+  @doc """
+  Send new notice message in a specific room.
+  """
+  @spec send_notice_message(String.t(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, Event.t()} | {:error, any()}
+  def send_notice_message(token, room, text, formatted_body \\ nil) do
+    payload = %{
+      "msgtype" => "m.notice",
+      "body" => text
+    }
+
+    payload =
+      unless is_nil(formatted_body) do
+        payload
+        |> Map.put("formatted_body", formatted_body)
+      else
+        payload
+      end
+
+    send_message(token, room, payload)
   end
 
   @doc """
@@ -361,6 +426,64 @@ defmodule ExMatrixApi.Synapse do
   end
 
   @doc """
+  Gets list of room members
+  """
+  @spec joined_members(String.t(), String.t()) ::
+          {:ok, list(Member.t())} | {:error, any()}
+  def joined_members(token, room) do
+    headers = auth_headers(token)
+    joined_members_url = api_url!("/rooms/#{room}/joined_members")
+
+    with {:ok, %{"joined" => room_members}} <- Request.get(joined_members_url, headers) do
+      members =
+        for {key, %{"display_name" => display_name, "avatar_url" => avatar_url}} <- room_members do
+          %Member{
+            user_id: key,
+            display_name: display_name,
+            avatar_url: avatar_url
+          }
+        end
+
+      {:ok, members}
+    end
+  end
+
+  @doc """
+  Redacts event
+  """
+  @spec redact_event(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Event.t()} | {:error, HttpError.t()}
+  def redact_event(token, room, event_id, reason \\ "delete") do
+    headers = auth_headers(token)
+    txn_id = generate_uuid()
+    api_url = api_url!("/rooms/#{room}/redact/#{event_id}/#{txn_id}")
+
+    payload = %{
+      "reason" => reason
+    }
+
+    with {:ok, %{"event_id" => _event_id} = response} <-
+           Request.put(api_url, payload, headers) do
+      {:ok, Util.to_struct(Event, response)}
+    end
+  end
+
+  @doc """
+  Gets event by id
+  """
+  @spec get_event(String.t(), String.t(), String.t()) ::
+          {:ok, Event.t()} | {:error, HttpError.t()}
+  def get_event(token, room, event_id) do
+    headers = auth_headers(token)
+    api_url = api_url!("/rooms/#{room}/event/#{event_id}")
+
+    with {:ok, %{"event_id" => _event_id} = response} <-
+           Request.get(api_url, headers) do
+      {:ok, Util.to_struct(Event, response)}
+    end
+  end
+
+  @doc """
   Read config settings.
   """
   @spec config!(atom()) :: any()
@@ -374,4 +497,27 @@ defmodule ExMatrixApi.Synapse do
   defp media_api_url!(suffix), do: config!(:media_api_url) <> suffix
 
   defp auth_headers(token), do: [{"Authorization", "Bearer #{token}"}]
+
+  defp send_message(token, room, message_payload) do
+    headers = auth_headers(token)
+    uuid = generate_uuid()
+    message_url = api_url!("/rooms/#{room}/send/m.room.message/#{uuid}")
+
+    message_payload =
+      if Map.has_key?(message_payload, "formatted_body") do
+        message_payload
+        |> Map.put("format", "org.matrix.custom.html")
+      else
+        message_payload
+      end
+
+    with {:ok, %{"event_id" => _event_id} = response} <-
+           Request.put(message_url, message_payload, headers) do
+      {:ok, Util.to_struct(Event, response)}
+    end
+  end
+
+  defp generate_uuid() do
+    UUID.generate()
+  end
 end

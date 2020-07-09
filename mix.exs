@@ -4,8 +4,8 @@ defmodule ExMatrixApi.MixProject do
   def project do
     [
       app: :ex_matrix_api,
-      version: "0.1.1",
-      elixir: "~> 1.10",
+      version: "0.1.2",
+      elixir: "~> 1.9",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       description: "Elixir API to communicate with Matrix Synapse",
@@ -38,9 +38,7 @@ defmodule ExMatrixApi.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # Utilities
-      {:jason, "~> 1.0"},
-      {:httpoison, "~> 1.6"},
+      {:utils_http, "~> 0.1.0"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end

@@ -1,4 +1,5 @@
 # ExMatrixApi
+Elixir API to communicate with Matrix Synapse
 
 Currently it's work in progress for internal usage, missing tests, use at your own risk.
 
@@ -10,11 +11,17 @@ by adding `ex_matrix_api` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:ex_matrix_api, "~> 0.1.0"}
+    {:ex_matrix_api, "~> 0.1.2"}
   ]
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at [https://hexdocs.pm/ex_matrix_api](https://hexdocs.pm/ex_matrix_api).
+## Configuration example
+```elixir
+  # Configure access to Matrix Synapse
+  config :ex_matrix_api, Matrix.Synapse,
+    host: "matrix.local",
+    registration_secret: "__some_secret_key__",
+    http_client: UtilsHttp.Client.HTTPoison, # configured by default
+    uuid_function: &Ecto.UUID.generate/0 # any uuid4 generator function
+```

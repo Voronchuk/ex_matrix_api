@@ -4,5 +4,5 @@ defmodule ExMatrixApi.Util.Request do
 
   Delegates to the configured HTTP client module.
   """
-  use ExMatrixApi.Behaviour.HttpClient
+  use UtilsHttp.Behaviour.HttpClient, http_client: ExMatrixApi.Synapse.config!(:http_client)
 end
