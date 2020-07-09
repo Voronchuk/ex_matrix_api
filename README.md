@@ -19,7 +19,7 @@ end
 ## Configuration example
 ```elixir
   # Configure access to Matrix Synapse
-  config :ex_matrix_api, Matrix.Synapse,
+  config :ex_matrix_api, ExMatrixApi.Synapse,
     host: "matrix.local",
     registration_secret: "__some_secret_key__",
     http_client: UtilsHttp.Client.HTTPoison, # configured by default
