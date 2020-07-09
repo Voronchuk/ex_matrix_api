@@ -23,7 +23,8 @@ defmodule ExMatrixApi.Synapse.Rooms.Event do
                      [
                        "m.room.aliases",
                        "m.room.message",
-                       "m.room.join_rules"
+                       "m.room.join_rules",
+                       "m.room.redaction"
                      ]
 
   @doc """
